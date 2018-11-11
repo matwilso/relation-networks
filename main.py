@@ -133,23 +133,35 @@ def relation(oij, scope='g'):
         out = tf.layers.dense(out, 128, activation=None)
     return out
 
+def f(g_sum):
+    out = g_sum
+    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+    out = tf.layers.dense(out, 128, activation=None)
+    return out
+
 class Model(object):
     def __init__(self, state):
-        def do_g_sum(state):
-            # TODO: try making this part parallel too and see if it makes it faster
-            x = tf.range(tf.shape(state)[0], dtype=tf.int32)
-            a, b = x[None, :, None], x[:, None, None]
-            cartesian_product = tf.concat([b + tf.zeros_like(a), tf.zeros_like(b) + a], axis = 2)
-            #new_shape = tf.stack([-1, tf.shape(cartesian_product)[-1]])
-            #cartesian_product = tf.reshape(cartesian_product, new_shape)
-            cartesian_product = tf.reshape(cartesian_product, [-1])
+        with tf.variable_scope('model'):
+            def do_g_sum(state):
+                # TODO: write test for this (maybe where relation is replaced with something simpler)
+                # TODO: try making this part parallel too and see if it makes it faster
+                x = tf.range(tf.shape(state)[0], dtype=tf.int32)
+                a, b = x[None, :, None], x[:, None, None]
+                cartesian_product = tf.concat([b + tf.zeros_like(a), tf.zeros_like(b) + a], axis = 2)
+                #new_shape = tf.stack([-1, tf.shape(cartesian_product)[-1]])
+                #cartesian_product = tf.reshape(cartesian_product, new_shape)
+                cartesian_product = tf.reshape(cartesian_product, [-1])
 
-            ijs = tf.reshape(tf.gather(state, cartesian_product), [-1,2,2])
-            ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
-            g = relation(ijs)
-            return tf.reduce_sum(g, axis=0)
-        g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
+                ijs = tf.reshape(tf.gather(state, cartesian_product), [-1,2,2])
+                ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
+                g = relation(ijs)
+                return tf.reduce_sum(g, axis=0)
 
+            g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
+            self.pred = f(g_sum)
+
+            # TODO: add MDN head
 
 
 
@@ -165,30 +177,10 @@ def main():
     state = iterator.get_next()
 
     m = Model(state)
-
-
     sess = tf.InteractiveSession()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    sess.run(tf.global_variables_initializer())
+    sess.run(m.pred)
+    import ipdb; ipdb.set_trace()
 
 
 def plot():
