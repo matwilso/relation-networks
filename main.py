@@ -124,34 +124,38 @@ def normalize(state):
     return (state - W//2) / (W//2)
 
 
-def relation(oi, oj):
-    out = tf.concat([oi,oj])
-    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-
-
-
-
+def relation(oij, scope='g'):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE) as scope:
+        #out = tf.concat([objects[ij[0]],objects[ij[0]]])
+        out = oij
+        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+        out = tf.layers.dense(out, 128, activation=None)
+    return out
 
 class Model(object):
     def __init__(self, state):
+        def do_g_sum(state):
+            # TODO: try making this part parallel too and see if it makes it faster
+            x = tf.range(tf.shape(state)[0], dtype=tf.int32)
+            a, b = x[None, :, None], x[:, None, None]
+            cartesian_product = tf.concat([b + tf.zeros_like(a), tf.zeros_like(b) + a], axis = 2)
+            #new_shape = tf.stack([-1, tf.shape(cartesian_product)[-1]])
+            #cartesian_product = tf.reshape(cartesian_product, new_shape)
+            cartesian_product = tf.reshape(cartesian_product, [-1])
 
-
-
-        pass
-
-    def relation(self):
-        pass
-
-
+            ijs = tf.reshape(tf.gather(state, cartesian_product), [-1,2,2])
+            ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
+            g = relation(ijs)
+            return tf.reduce_sum(g, axis=0)
+        g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
 
 
 
 
 def main():
     dg = lambda : data_generator(N)
-    ds = tf.data.Dataset.from_generator(dg, tf.int64, tf.TensorShape([N,2]))
+    ds = tf.data.Dataset.from_generator(dg, tf.int64, tf.TensorShape([None,2]))
     ds = ds.batch(BS)
     ds = ds.map(to_float)
     ds = ds.map(normalize)
@@ -159,10 +163,11 @@ def main():
 
     iterator = ds.make_one_shot_iterator()
     state = iterator.get_next()
-    sess = tf.InteractiveSession()
-    out = sess.run(state)
-    import ipdb; ipdb.set_trace()
 
+    m = Model(state)
+
+
+    sess = tf.InteractiveSession()
 
 
 
