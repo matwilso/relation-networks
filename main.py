@@ -4,12 +4,15 @@ import matplotlib.patches as mpatches
 import itertools
 import tensorflow as tf
 
+from tensorflow_probability import distributions as tfd
+from tensorflow_probability import edward2 as ed
 
 BS = 30
 N = 10
 W = 64  
 H = 64  
 R = 2
+K = 20 
 DIRS = list(itertools.product([-4,0,4], [-4,0,4]))
 DIRS.remove((0,0))
 
@@ -137,7 +140,7 @@ def f(g_sum):
     out = g_sum
     out = tf.layers.dense(out, 128, activation=tf.nn.relu)
     out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-    out = tf.layers.dense(out, 128, activation=None)
+    out = tf.layers.dense(out, 128, activation=tf.nn.relu)
     return out
 
 class Model(object):
@@ -159,10 +162,28 @@ class Model(object):
                 return tf.reduce_sum(g, axis=0)
 
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
-            self.pred = f(g_sum)
+            self.f_out = f(g_sum)
 
-            # TODO: add MDN head
+            locs = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=None), [-1,K,2])
+            scales = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=tf.exp), [-1,K,2])
+            logits = tf.layers.dense(self.f_out, K, activation=None)
 
+            cat = tfd.Categorical(logits=logits)
+            # TODO: does this need to be a more complex normal
+            components = []
+            for loc, scale in zip(tf.unstack(tf.transpose(locs, [1,0,2])), tf.unstack(tf.transpose(scales, [1,0,2]))):
+                # tile these so that each of the samples share the same distribution values (they are iid)
+                tiled_loc = tf.tile(loc[:,None,:], [1,N,1])
+                tiled_scale = tf.tile(scale[:,None,:], [1,N,1])
+                normal = tfd.MultivariateNormalDiag(loc=tiled_loc, scale_diag=tiled_scale)
+                # collapse the distro down so that they are treated in an event_shape
+                dist = tfd.Independent(normal, reinterpreted_batch_ndims=1) 
+                components.append(dist)
+
+            self.mixture = tfd.Mixture(cat=cat, components=components)
+            #self.mixture = tfd.Independent(self.mixture, reinterpreted_batch_dims=1)
+            self.loss = -self.mixture.log_prob(state[:,0:1])
+            self.train_op = tf.train.AdamOptimizer(learning_rate=3e-4)
 
 
 def main():
@@ -179,8 +200,6 @@ def main():
     m = Model(state)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
-    sess.run(m.pred)
-    import ipdb; ipdb.set_trace()
 
 
 def plot():
