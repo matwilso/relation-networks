@@ -12,7 +12,7 @@ N = 10
 W = 64  
 H = 64  
 R = 2
-K = 20 
+K = 10
 DIRS = list(itertools.product([-4,0,4], [-4,0,4]))
 DIRS.remove((0,0))
 
@@ -64,7 +64,7 @@ def uniform(n):
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
 def cluster1(n):
-    border = W // 8
+    border = 2
     objs = [Circle.sample([border,W-border])]
 
     for i in range(n-1):
@@ -86,7 +86,7 @@ def cluster1(n):
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
 def cluster2(n):
-    border = W // 8
+    border = 2
 
     g1 = [Circle.sample([border,W-border])]
     while True:
@@ -113,12 +113,19 @@ def cluster2(n):
     objs = g1+g2
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
-def data_generator(n):
+def data_generator(n, key='state'):
     while True:
-        sampler = np.random.choice([uniform, cluster1, cluster2])
+        #sampler = np.random.choice([uniform, cluster1, cluster2])
+        #sampler = np.random.choice([uniform, cluster1, cluster2])
+        sampler = cluster2
         samples = sampler(n)
-        yield samples['state']
+        yield samples[key]
 
+
+def subsample_postbatch(state):
+    backset = tf.cast(6*tf.random.uniform([]), tf.int32)
+    return state[:,:N-backset]
+    #return tf.gather(state, tf.range(idx), axis=1)
 
 def to_float(state):
     return tf.to_float(state)
@@ -143,20 +150,26 @@ def f(g_sum):
     out = tf.layers.dense(out, 128, activation=tf.nn.relu)
     return out
 
+def cartesian_product(a,b):
+    a, b = a[None, :, None], b[:, None, None]
+    prod = tf.concat([b + tf.zeros_like(a), tf.zeros_like(b) + a], axis = 2)
+    #new_shape = tf.stack([-1, tf.shape(cartesian_product)[-1]])
+    #cartesian_product = tf.reshape(cartesian_product, new_shape)
+    prod = tf.reshape(prod, [-1])
+    return prod
+
 class Model(object):
     def __init__(self, state):
+        state_shape = tf.shape(state)
         with tf.variable_scope('model'):
             def do_g_sum(state):
                 # TODO: write test for this (maybe where relation is replaced with something simpler)
                 # TODO: try making this part parallel too and see if it makes it faster
+                # 
                 x = tf.range(tf.shape(state)[0], dtype=tf.int32)
-                a, b = x[None, :, None], x[:, None, None]
-                cartesian_product = tf.concat([b + tf.zeros_like(a), tf.zeros_like(b) + a], axis = 2)
-                #new_shape = tf.stack([-1, tf.shape(cartesian_product)[-1]])
-                #cartesian_product = tf.reshape(cartesian_product, new_shape)
-                cartesian_product = tf.reshape(cartesian_product, [-1])
+                idxs = cartesian_product(x,x)
 
-                ijs = tf.reshape(tf.gather(state, cartesian_product), [-1,2,2])
+                ijs = tf.reshape(tf.gather(state, idxs), [-1,2,2])
                 ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
                 g = relation(ijs)
                 return tf.reduce_sum(g, axis=0)
@@ -164,42 +177,84 @@ class Model(object):
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
             self.f_out = f(g_sum)
 
-            locs = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=None), [-1,K,2])
-            scales = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=tf.exp), [-1,K,2])
-            logits = tf.layers.dense(self.f_out, K, activation=None)
+            self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=None), [-1,K,2])
+            self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=tf.exp), [-1,K,2])
+            self.logits = tf.layers.dense(self.f_out, K, activation=None)
 
-            cat = tfd.Categorical(logits=logits)
+            cat = tfd.Categorical(logits=self.logits)
             # TODO: does this need to be a more complex normal
             components = []
-            for loc, scale in zip(tf.unstack(tf.transpose(locs, [1,0,2])), tf.unstack(tf.transpose(scales, [1,0,2]))):
+            eval_components = []
+            for loc, scale in zip(tf.unstack(tf.transpose(self.locs, [1,0,2])), tf.unstack(tf.transpose(self.scales, [1,0,2]))):
                 # tile these so that each of the samples share the same distribution values (they are iid)
-                tiled_loc = tf.tile(loc[:,None,:], [1,N,1])
-                tiled_scale = tf.tile(scale[:,None,:], [1,N,1])
-                normal = tfd.MultivariateNormalDiag(loc=tiled_loc, scale_diag=tiled_scale)
+                #tiled_loc = tf.tile(loc[:,None,:], [1,state_shape[-2],1])
+                #tiled_scale = tf.tile(scale[:,None,:], [1,state_shape[-2],1])
+                #normal = tfd.MultivariateNormalDiag(loc=tiled_loc, scale_diag=tiled_scale)
+                normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
                 # collapse the distro down so that they are treated in an event_shape
-                dist = tfd.Independent(normal, reinterpreted_batch_ndims=1) 
-                components.append(dist)
+                #dist = tfd.Independent(normal, reinterpreted_batch_ndims=1) 
+                #components.append(dist)
+                components.append(normal)
+
+                eval_normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+                eval_components.append(eval_normal)
+
 
             self.mixture = tfd.Mixture(cat=cat, components=components)
+            self.eval_mixture = tfd.Mixture(cat=cat, components=eval_components)
             #self.mixture = tfd.Independent(self.mixture, reinterpreted_batch_dims=1)
-            self.loss = -self.mixture.log_prob(state[:,0:1])
-            self.train_op = tf.train.AdamOptimizer(learning_rate=3e-4)
+
+            idx = tf.cast(10*tf.random.uniform([]), tf.int32)
+            loss = 0
+            for i in range(10):
+                loss += -self.mixture.log_prob(state[:,i])
+            self.loss = tf.reduce_mean(loss)
+            self.train_op = tf.train.AdamOptimizer(learning_rate=3e-4).minimize(self.loss)
+
+            self.X, self.Y = tf.meshgrid(tf.linspace(-1.0,1.0,100), tf.linspace(-1.0,1.0,100))
+            self.stacked = tf.stack([self.X,self.Y], axis=-1)[:,:,None,:]
+            self.eval = self.eval_mixture.log_prob(self.stacked)
+
 
 
 def main():
     dg = lambda : data_generator(N)
     ds = tf.data.Dataset.from_generator(dg, tf.int64, tf.TensorShape([None,2]))
-    ds = ds.batch(BS)
     ds = ds.map(to_float)
+    ds = ds.batch(BS)
     ds = ds.map(normalize)
+    #ds = ds.map(subsample_postbatch)
     ds = ds.prefetch(10)
 
     iterator = ds.make_one_shot_iterator()
     state = iterator.get_next()
 
-    m = Model(state)
+    model = Model(state)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
+
+    try:
+        for i in itertools.count(start=1):
+            _, loss = sess.run([model.train_op, model.loss])
+
+            if i % 100 == 0:
+                logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
+                plt.contour(X,Y,Z[:,:,0])
+                plt.scatter(curr_state[0,:,0], curr_state[0,:,1])
+                plt.savefig('test-{}.png'.format(i))
+                plt.clf()
+                print(scales[0])
+                print(logits[0])
+                print('i = {}, loss = {}'.format(i, loss))
+
+
+    except KeyboardInterrupt:
+        import ipdb; ipdb.set_trace()
+        
+
+
+
+
 
 
 def plot():
@@ -207,10 +262,10 @@ def plot():
     rect = mpatches.Rectangle((0,0), W, H, color='C0')
     ax.add_patch(rect)
 
-    dg = data_generator(N)
+    dg = data_generator(N, key='shapes')
     objs = dg.__next__()
 
-    for o in objs['og']:
+    for o in objs:
         o.plot(ax)
     plt.show()
 
