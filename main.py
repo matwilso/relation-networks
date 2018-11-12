@@ -1,18 +1,17 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import seaborn as sns
 import itertools
 import tensorflow as tf
 
 from tensorflow_probability import distributions as tfd
-from tensorflow_probability import edward2 as ed
+from define_flags import FLAGS
 
-BS = 30
-N = 10
 W = 64  
 H = 64  
 R = 2
-K = 10
 DIRS = list(itertools.product([-4,0,4], [-4,0,4]))
 DIRS.remove((0,0))
 
@@ -115,15 +114,14 @@ def cluster2(n):
 
 def data_generator(n, key='state'):
     while True:
-        #sampler = np.random.choice([uniform, cluster1, cluster2])
-        sampler = uniform
+        sampler = np.random.choice([uniform, cluster1, cluster2])
         samples = sampler(n)
         yield samples[key]
 
 
 def subsample_postbatch(state):
-    backset = tf.cast(6*tf.random.uniform([]), tf.int32)
-    return state[:,:N-backset]
+    backset = tf.cast((FLAGS['subsample']+1)*tf.random.uniform([]), tf.int32)
+    return state[:,:FLAGS['num_shapes']-backset]
     #return tf.gather(state, tf.range(idx), axis=1)
 
 def to_float(state):
@@ -176,9 +174,9 @@ class Model(object):
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
             self.f_out = f(g_sum)
 
-            self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=None), [-1,K,2])
-            self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*K, activation=tf.exp), [-1,K,2])
-            self.logits = tf.layers.dense(self.f_out, K, activation=None)
+            self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=None), [-1,FLAGS['k'],2])
+            self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=tf.exp), [-1,FLAGS['k'],2])
+            self.logits = tf.layers.dense(self.f_out, FLAGS['k'], activation=None)
 
             cat = tfd.Categorical(logits=self.logits)
             # TODO: does this need to be a more complex normal
@@ -214,21 +212,21 @@ class Model(object):
             #for i in range(10):
             #    loss += -self.mixture.log_prob(state[:,i])
             self.loss = tf.reduce_mean(loss)
-            self.train_op = tf.train.AdamOptimizer(learning_rate=3e-4).minimize(self.loss)
+            self.train_op = tf.train.AdamOptimizer(learning_rate=FLAGS['lr']).minimize(self.loss)
 
             self.X, self.Y = tf.meshgrid(tf.linspace(-1.0,1.0,100), tf.linspace(-1.0,1.0,100))
             self.stacked = tf.stack([self.X,self.Y], axis=-1)[:,:,None,:]
             self.eval = self.eval_mixture.log_prob(self.stacked)
-
+            self.samples = self.eval_mixture.sample([1000])
 
 
 def main():
-    dg = lambda : data_generator(N)
+    dg = lambda : data_generator(FLAGS['num_shapes'])
     ds = tf.data.Dataset.from_generator(dg, tf.int64, tf.TensorShape([None,2]))
     ds = ds.map(to_float)
-    ds = ds.batch(BS)
+    ds = ds.batch(FLAGS['bs'])
     ds = ds.map(normalize)
-    #ds = ds.map(subsample_postbatch)
+    ds = ds.map(subsample_postbatch)
     ds = ds.prefetch(10)
 
     iterator = ds.make_one_shot_iterator()
@@ -243,40 +241,49 @@ def main():
             _, loss = sess.run([model.train_op, model.loss])
 
             if i % 100 == 0:
-                logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
+                samples, logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.samples, model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
+
+                sample_title = '{}-sample.png'.format(i)
+                prob_title = '{}-prob.png'.format(i)
+                plot_path = os.path.join(FLAGS['logpath'], 'data/')
+                os.makedirs(plot_path, exist_ok=True)
+                sample_path = os.path.join(plot_path, sample_title) 
+                prob_path = os.path.join(plot_path, prob_title) 
+                if FLAGS['plot_samples']:
+                    sns.jointplot(samples[:,0,0], samples[:,0,1], kind='hex', color='#4cb391', xlim=(-1.0,1.0), ylim=(-1.0,1.0))
+                    plt.savefig(sample_path)
+                    plt.clf()
                 plt.contour(X,Y,Z[:,:,0])
                 plt.scatter(curr_state[0,:,0], curr_state[0,:,1])
-                plt.savefig('data/test-{}.png'.format(i))
+                plt.title(prob_title)
+                plt.savefig(prob_path)
                 plt.clf()
                 print(scales[0])
                 print(logits[0])
                 print('i = {}, loss = {}'.format(i, loss))
 
+            if i >= 5e4:
+                exit()
 
     except KeyboardInterrupt:
         import ipdb; ipdb.set_trace()
-        
-
-
-
-
-
 
 def plot():
-    ax = plt.gca(aspect='equal', xlim=W, ylim=H)
-    rect = mpatches.Rectangle((0,0), W, H, color='C0')
-    ax.add_patch(rect)
+    while True:
+        ax = plt.gca(aspect='equal', xlim=W, ylim=H)
+        rect = mpatches.Rectangle((0,0), W, H, color='C0')
+        ax.add_patch(rect)
 
-    dg = data_generator(N, key='shapes')
-    objs = dg.__next__()
+        dg = data_generator(FLAGS['num_shapes'], key='shapes')
+        objs = dg.__next__()
 
-    for o in objs:
-        o.plot(ax)
-    plt.show()
+        for o in objs:
+            o.plot(ax)
+        plt.show()
 
 
 if __name__ == "__main__":
-    main()
-
-    #while True:
-    #    plot()
+    if FLAGS['plot_shapes']:
+        plot()
+    else:
+        main()
