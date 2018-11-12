@@ -116,8 +116,7 @@ def cluster2(n):
 def data_generator(n, key='state'):
     while True:
         #sampler = np.random.choice([uniform, cluster1, cluster2])
-        #sampler = np.random.choice([uniform, cluster1, cluster2])
-        sampler = cluster2
+        sampler = uniform
         samples = sampler(n)
         yield samples[key]
 
@@ -165,7 +164,7 @@ class Model(object):
             def do_g_sum(state):
                 # TODO: write test for this (maybe where relation is replaced with something simpler)
                 # TODO: try making this part parallel too and see if it makes it faster
-                # 
+                # TODO: see if transposing and doing the map_fn over the objects would be faster.  i bet it might be
                 x = tf.range(tf.shape(state)[0], dtype=tf.int32)
                 idxs = cartesian_product(x,x)
 
@@ -204,10 +203,16 @@ class Model(object):
             self.eval_mixture = tfd.Mixture(cat=cat, components=eval_components)
             #self.mixture = tfd.Independent(self.mixture, reinterpreted_batch_dims=1)
 
-            idx = tf.cast(10*tf.random.uniform([]), tf.int32)
-            loss = 0
-            for i in range(10):
-                loss += -self.mixture.log_prob(state[:,i])
+            num_objs = tf.shape(state)[-2]
+
+            tstate = tf.transpose(state, [1,0,2])
+
+            loss = -tf.map_fn(self.mixture.log_prob, tstate, tf.float32)
+            self.loss = tf.reduce_mean(loss)
+
+            #loss = 0
+            #for i in range(10):
+            #    loss += -self.mixture.log_prob(state[:,i])
             self.loss = tf.reduce_mean(loss)
             self.train_op = tf.train.AdamOptimizer(learning_rate=3e-4).minimize(self.loss)
 
@@ -241,7 +246,7 @@ def main():
                 logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
                 plt.contour(X,Y,Z[:,:,0])
                 plt.scatter(curr_state[0,:,0], curr_state[0,:,1])
-                plt.savefig('test-{}.png'.format(i))
+                plt.savefig('data/test-{}.png'.format(i))
                 plt.clf()
                 print(scales[0])
                 print(logits[0])
