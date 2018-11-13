@@ -120,7 +120,6 @@ def make_image(objs):
         miny, maxy = (o.y - cr) % H, (o.y + cr) % H
         arr[minx:maxx,miny:maxy] = 1
     #fill_in(arr)
-
     return arr
 
 

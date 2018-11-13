@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_probability import distributions as tfd
 from define_flags import FLAGS
-from rns.data import normalize, subsample_postbatch, to_float, data_generator
+from rns.data import normalize, subsample_postbatch, to_float, data_generator, Dataset
 from rns.viz import plot_contour, plot_samples, plot_shapes, plot_arr
 
 
@@ -101,7 +101,8 @@ class RNModel(object):
 
 
 def main():
-    model = RNModel(state)
+    train_ds = Dataset(FLAGS)
+    model = RNModel(train_ds.state)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
 
@@ -110,11 +111,9 @@ def main():
             _, loss = sess.run([model.train_op, model.loss])
 
             if i % 100 == 0:
-                samples, logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.samples, model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
+                samples, logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.samples, model.logits, model.locs, model.scales, train_ds.state, model.loss, model.X, model.Y, model.eval])
 
-                plot_contour()
-
-                plot_results() 
+                plot_contour(curr_state, X, Y, Z, FLAGS, i=i)
 
                 print(scales[0])
                 print(logits[0])
