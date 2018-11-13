@@ -1,134 +1,11 @@
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import seaborn as sns
 import itertools
+import numpy as np
 import tensorflow as tf
-
 from tensorflow_probability import distributions as tfd
 from define_flags import FLAGS
-
-W = 64  
-H = 64  
-R = 2
-DIRS = list(itertools.product([-4,0,4], [-4,0,4]))
-DIRS.remove((0,0))
-
-class Circle(object):
-    def __init__(self, x, y, r=R):
-        self.x = x
-        self.y = y
-        self.r = r
-
-    @staticmethod
-    def sample(xlim, ylim=None):
-        x = np.random.randint(xlim[0],xlim[1])
-        if ylim is None:
-            y = np.random.randint(xlim[0],xlim[1])
-        else:
-            y = np.random.randint(ylim[0],ylim[1])
-        return Circle(x, y)
-
-    def plot(self, ax):
-        circ = mpatches.Circle((self.x,self.y), self.r, color='C1')
-        ax.add_patch(circ)
-    
-    def __str__(self):
-        return 'x: {} y: {} r: {}'.format(self.x, self.y, self.r)
-
-    def __eq__(self, other):
-        me = np.array([self.x, self.y])
-        them = np.array([other.x, other.y])
-        dist = np.linalg.norm(me-them) 
-        return dist < 2*np.max([self.r, other.r])
-
-    @staticmethod
-    def list_to_state(objs):
-        arr = []
-        for obj in objs:
-            arr.append([obj.x, obj.y])
-        return np.array(arr)
-
-def uniform(n):
-    objs = []
-    for i in range(n):
-        while True:
-            c = Circle.sample([R,W-R])
-            if c in objs:
-                continue
-            else:
-                break
-        objs.append(c)
-    return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
-
-def cluster1(n):
-    border = 2
-    objs = [Circle.sample([border,W-border])]
-
-    for i in range(n-1):
-        while True:
-            reference = np.random.choice(objs)
-            dir = np.array(DIRS[np.random.randint(len(DIRS))])
-            dir *= np.random.randint(1,3)
-
-            x, y = reference.x + dir[0], reference.y + dir[1]
-            c = Circle(x,y)
-
-            if (c in objs) or c.x > W-R or c.x < R or c.y > H-R or c.y < R:
-                continue
-            else:
-                break
-
-
-        objs.append(c)
-    return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
-
-def cluster2(n):
-    border = 2
-
-    g1 = [Circle.sample([border,W-border])]
-    while True:
-        g2 = [Circle.sample([border,W-border])]
-        if g1[0] != g2[0]:
-            break
-
-    for i in range(n-2):
-        while True:
-            g = g1 if np.random.binomial(1,0.5) else g2
-            reference = np.random.choice(g)
-            dir = np.array(DIRS[np.random.randint(len(DIRS))])
-            dir *= np.random.randint(1,3)
-
-            x, y = reference.x + dir[0], reference.y + dir[1]
-            c = Circle(x,y)
-
-            if (c in g1+g2) or c.x > W-2 or c.x < 2 or c.y > H-2 or c.y < 2:
-                continue
-            else:
-                break
-        g.append(c)
-
-    objs = g1+g2
-    return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
-
-def data_generator(n, key='state'):
-    while True:
-        sampler = np.random.choice([uniform, cluster1, cluster2])
-        samples = sampler(n)
-        yield samples[key]
-
-
-def subsample_postbatch(state):
-    backset = tf.cast((FLAGS['subsample']+1)*tf.random.uniform([]), tf.int32)
-    return state[:,:FLAGS['num_shapes']-backset]
-    #return tf.gather(state, tf.range(idx), axis=1)
-
-def to_float(state):
-    return tf.to_float(state)
-
-def normalize(state):
-    return (state - W//2) / (W//2)
+from rns.data import normalize, subsample_postbatch, to_float, data_generator
+from rns.viz import plot_contour, plot_samples, plot_shapes, plot_arr
 
 
 def relation(oij, scope='g'):
@@ -155,7 +32,7 @@ def cartesian_product(a,b):
     prod = tf.reshape(prod, [-1])
     return prod
 
-class Model(object):
+class RNModel(object):
     def __init__(self, state):
         state_shape = tf.shape(state)
         with tf.variable_scope('model'):
@@ -220,19 +97,11 @@ class Model(object):
             self.samples = self.eval_mixture.sample([1000])
 
 
+    
+
+
 def main():
-    dg = lambda : data_generator(FLAGS['num_shapes'])
-    ds = tf.data.Dataset.from_generator(dg, tf.int64, tf.TensorShape([None,2]))
-    ds = ds.map(to_float)
-    ds = ds.batch(FLAGS['bs'])
-    ds = ds.map(normalize)
-    ds = ds.map(subsample_postbatch)
-    ds = ds.prefetch(10)
-
-    iterator = ds.make_one_shot_iterator()
-    state = iterator.get_next()
-
-    model = Model(state)
+    model = RNModel(state)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
 
@@ -243,21 +112,10 @@ def main():
             if i % 100 == 0:
                 samples, logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.samples, model.logits, model.locs, model.scales, state, model.loss, model.X, model.Y, model.eval])
 
-                sample_title = '{}-sample.png'.format(i)
-                prob_title = '{}-prob.png'.format(i)
-                plot_path = os.path.join(FLAGS['logpath'], 'data/')
-                os.makedirs(plot_path, exist_ok=True)
-                sample_path = os.path.join(plot_path, sample_title) 
-                prob_path = os.path.join(plot_path, prob_title) 
-                if FLAGS['plot_samples']:
-                    sns.jointplot(samples[:,0,0], samples[:,0,1], kind='hex', color='#4cb391', xlim=(-1.0,1.0), ylim=(-1.0,1.0))
-                    plt.savefig(sample_path)
-                    plt.clf()
-                plt.contour(X,Y,Z[:,:,0])
-                plt.scatter(curr_state[0,:,0], curr_state[0,:,1])
-                plt.title(prob_title)
-                plt.savefig(prob_path)
-                plt.clf()
+                plot_contour()
+
+                plot_results() 
+
                 print(scales[0])
                 print(logits[0])
                 print('i = {}, loss = {}'.format(i, loss))
@@ -268,22 +126,13 @@ def main():
     except KeyboardInterrupt:
         import ipdb; ipdb.set_trace()
 
-def plot():
-    while True:
-        ax = plt.gca(aspect='equal', xlim=W, ylim=H)
-        rect = mpatches.Rectangle((0,0), W, H, color='C0')
-        ax.add_patch(rect)
-
-        dg = data_generator(FLAGS['num_shapes'], key='shapes')
-        objs = dg.__next__()
-
-        for o in objs:
-            o.plot(ax)
-        plt.show()
-
 
 if __name__ == "__main__":
     if FLAGS['plot_shapes']:
-        plot()
+        #while True:
+        #    plot_shapes(data_generator(FLAGS['num_shapes']), FLAGS)
+        while True:
+            dg = data_generator(FLAGS['num_shapes'])
+            plot_arr(dg.__next__()['image'])
     else:
         main()

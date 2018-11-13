@@ -13,7 +13,7 @@ FLAGS = flags.FLAGS
 #    __setattr__ = dict.__setitem__
 #    __delattr__ = dict.__delitem__
 
-flags.DEFINE_string('logdir', 'logs/', help='')
+flags.DEFINE_string('log_dir', 'logs/', help='')
 flags.DEFINE_float('lr', 3e-4, help='')
 flags.DEFINE_integer('bs', 32, help='')
 flags.DEFINE_integer('num_shapes', 15, help='')
@@ -43,5 +43,19 @@ def _make_hp_str(FLAGS):
 # dotdict-ing this was causing an error
 FLAGS = {key: val.value for key, val in FLAGS._flags().items()}
 FLAGS['hp_str'] = _make_hp_str(FLAGS)
-FLAGS['logpath'] = os.path.join(FLAGS['logdir'], FLAGS['hp_str'])
-os.makedirs(FLAGS['logpath'], exist_ok=True)
+FLAGS['log_path'] = os.path.join(FLAGS['log_dir'], FLAGS['hp_str'])
+os.makedirs(FLAGS['log_path'], exist_ok=True)
+FLAGS['plot_path'] = os.path.join(FLAGS['log_path'], 'data/')
+os.makedirs(FLAGS['plot_path'], exist_ok=True)
+
+
+
+
+
+
+
+
+
+
+
+
