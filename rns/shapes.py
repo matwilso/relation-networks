@@ -106,7 +106,7 @@ def cluster2(n):
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
 def make_image(objs):
-    arr = np.zeros([W,H], dtype=np.float32)
+    arr = np.zeros([W,H,1], dtype=np.float32)
     
     for o in objs:
         #cr = o.r

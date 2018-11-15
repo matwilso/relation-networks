@@ -7,7 +7,13 @@ from rns.constant import W, H
 
 
 def plot_arr(arr):
-    plt.imshow(arr)
+    plt.imshow(arr, cmap='binary')
+    plt.show()
+
+def plot_in_out_vae(img1, img2):
+    fig, (ax1, ax2) = plt.subplots(2,1)
+    ax1.imshow(img1)
+    ax2.imshow(img2)
     plt.show()
 
 def plot_contour(curr_state, X, Y, Z, FLAGS, i=None):
