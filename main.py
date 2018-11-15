@@ -5,13 +5,16 @@ import tensorflow as tf
 from tensorflow_probability import distributions as tfd
 from define_flags import FLAGS
 from rns.data import normalize, subsample_postbatch, to_float, data_generator, Dataset
-from rns.viz import plot_contour, plot_samples, plot_shapes, plot_arr
+from rns.viz import plot_contour, plot_samples, plot_shapes, plot_arr, plot_in_out_vae
 from rns.constant import W, H, R, IMAGE_SHAPE
 
 # TODO: figure out how to write raw tensorboard image using similar to baselines.logger
 # TODO: need to add mechanism for masking out extra objects so that every batch can have a fixed number of inputs.
 # at the moment, there can be a difference between number of objects in batch and that shown in the image
 # TODO: add summaries visualizing the distributions
+# TODO: annealing learning rate
+# TODO: try RN network for images
+# TODO: optimize RN model
 
 def cartesian_product(a,b):
     a, b = a[None, :, None], b[:, None, None]
@@ -22,7 +25,7 @@ def cartesian_product(a,b):
     return prod
 
 class RNModel(object):
-    def relation(oij, scope='g'):
+    def relation(self, oij, scope='g'):
         with tf.variable_scope(scope, reuse=tf.AUTO_REUSE) as scope:
             #out = tf.concat([objects[ij[0]],objects[ij[0]]])
             out = oij
@@ -31,7 +34,7 @@ class RNModel(object):
             out = tf.layers.dense(out, 128, activation=None)
         return out
 
-    def f(g_sum):
+    def f(self, g_sum):
         out = g_sum
         out = tf.layers.dense(out, 128, activation=tf.nn.relu)
         out = tf.layers.dense(out, 128, activation=tf.nn.relu)
@@ -50,11 +53,11 @@ class RNModel(object):
 
                 ijs = tf.reshape(tf.gather(state, idxs), [-1,2,2])
                 ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
-                g = relation(ijs)
+                g = self.relation(ijs)
                 return tf.reduce_sum(g, axis=0)
 
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
-            self.f_out = f(g_sum)
+            self.f_out = self.f(g_sum)
 
             self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=None), [-1,FLAGS['k'],2])
             self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=tf.exp), [-1,FLAGS['k'],2])
@@ -189,7 +192,6 @@ def main():
                 samples, logits, locs, scales, curr_state, loss, X, Y, Z = sess.run([model.samples, model.logits, model.locs, model.scales, train_ds.state, model.loss, model.X, model.Y, model.eval])
                 #plot_arr(curr_state['image'][0][...,0])
                 plot_contour(curr_state['state'], X, Y, Z, FLAGS, i=i)
-                #plot_in_out_vae()
 
                 #print('scales: min: {} max: {} mean: {} median: {}'.format(np.min(scales[0]), np.max(scales[0]), np.mean(scales[0]), np.median(scales[0])))
                 print('logits: min: {} max: {} median: {}'.format(np.min(logits[0]), np.max(logits[0]), np.median(logits[0])))
@@ -211,11 +213,10 @@ def vae_main():
     for i in itertools.count(start=1):
         _, loss = sess.run([model.train_op, model.loss])
 
-        if i % 1 == 0:
-            import ipdb; ipdb.set_trace()
+        if i % 100 == 0:
             samples, curr_state, loss = sess.run([model.samples, train_ds.state, model.loss])
             #plot_arr(curr_state['image'][0][...,0])
-            #plot_in_out_vae()
+            plot_in_out_vae(curr_state['image'][0][...,0], samples[0][0][...,0], FLAGS, i=i)
             #print('scales: min: {} max: {} mean: {} median: {}'.format(np.min(scales[0]), np.max(scales[0]), np.mean(scales[0]), np.median(scales[0])))
             print('i = {}, loss = {}'.format(i, loss))
 

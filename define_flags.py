@@ -40,6 +40,9 @@ def _make_hp_str(FLAGS):
     hp_str += '-nshapes{}'.format(FLAGS['num_shapes']) 
     hp_str += '-subsample{}'.format(FLAGS['subsample']) 
     hp_str += '-k{}'.format(FLAGS['k']) 
+    hp_str += '-vaek{}'.format(FLAGS['vae_k']) 
+    hp_str += '-zsize{}'.format(FLAGS['z_size']) 
+    hp_str += '-vaesamples{}'.format(FLAGS['num_vae_samples']) 
     # TODO: add unique identifier
     return hp_str
 

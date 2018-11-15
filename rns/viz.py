@@ -10,11 +10,16 @@ def plot_arr(arr):
     plt.imshow(arr, cmap='binary')
     plt.show()
 
-def plot_in_out_vae(img1, img2):
-    fig, (ax1, ax2) = plt.subplots(2,1)
-    ax1.imshow(img1)
-    ax2.imshow(img2)
-    plt.show()
+def plot_in_out_vae(img1, img2, FLAGS, i=0):
+    vae_title = '{}-vae.png'.format(i)
+    os.makedirs(FLAGS['plot_path'], exist_ok=True)
+    vae_path = os.path.join(FLAGS['plot_path'], vae_title) 
+    fig, (ax1, ax2) = plt.subplots(1,2)
+    ax1.imshow(img1, cmap='binary')
+    ax2.imshow(img2, cmap='binary')
+    plt.savefig(vae_path)
+    plt.clf()
+    plt.close()
 
 def plot_contour(curr_state, X, Y, Z, FLAGS, i=None):
     prob_title = '{}-prob.png'.format(i)

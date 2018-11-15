@@ -16,7 +16,7 @@ def to_float(state):
 
 def normalize(state):
     state['state'] = (state['state'] - W//2) / (W//2)
-    state['image'] = (state['image'] / 0.5) - 1.0
+    #state['image'] = (state['image'] / 0.5) - 1.0
     return state
 
 #def preproc_image(img, width=224, height=224, dtype=np.uint8):
