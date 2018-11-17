@@ -1,8 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from rns.constant import W, H, R, DIRS
-from rns.shapes import uniform, cluster1, cluster2, make_image
-from rns.viz import plot_shapes, plot_arr
+from rns.shapes import SAMPLERS, make_image
 
 def subsample_postbatch(state, FLAGS):
     backset = tf.cast((FLAGS['subsample']+1)*tf.random.uniform([]), tf.int32)
@@ -33,18 +32,19 @@ def resize_image(state):
     state['image'] = tf.image.resize_images(state['image'], size=[64,64])
     return state
 
-def data_generator(n):
+def data_generator(n, samplers):
+    samplers = [SAMPLERS[key] for key in samplers]
     while True:
-        sampler = np.random.choice([uniform, cluster1, cluster2])
-        samples = {}
+        sampler = np.random.choice(samplers)
         raw_data = sampler(n)
+        samples = {}
         samples['state'] = raw_data['state']
         samples['image'] = make_image(raw_data['shapes'])
         yield samples
 
 class Dataset(object):
     def __init__(self, FLAGS):
-        dg = lambda : data_generator(FLAGS['num_shapes'])
+        dg = lambda : data_generator(FLAGS['num_shapes'], FLAGS['samplers'])
 
         self.dataset = tf.data.Dataset.from_generator(dg, {'state': tf.int64, 'image': tf.float32}, {'state': tf.TensorShape([None,2]), 'image':tf.TensorShape([None,None,1])})
         self.dataset = self.dataset.map(to_float)

@@ -3,6 +3,16 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from rns.constant import W, H, R, DIRS
 
+
+# Architectures
+SAMPLERS = {}
+def register_sampler(func):
+    SAMPLERS[func.__name__] = func
+    def func_wrapper(images, **conv_kwargs):
+        return func(images, **conv_kwargs)
+    return func_wrapper
+
+
 # SHAPE CLASSES
 class Circle(object):
     def __init__(self, x, y, r=R):
@@ -42,6 +52,7 @@ class Circle(object):
 # Sampling functions
 # (must be in range of W,H and not overlapping)
 # Return dictionary of data
+@register_sampler
 def uniform(n):
     """Sample n shapes uniformly throughout space"""
     objs = []
@@ -55,6 +66,7 @@ def uniform(n):
         objs.append(c)
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
+@register_sampler
 def cluster1(n):
     """Sample n shapes in a cluster"""
     border = 2
@@ -77,6 +89,7 @@ def cluster1(n):
         objs.append(c)
     return {'shapes': objs, 'state': objs[0].list_to_state(objs)}
 
+@register_sampler
 def cluster2(n):
     """Sample n shapes into two clusters"""
     border = 2
