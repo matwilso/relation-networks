@@ -78,8 +78,12 @@ class RNModel(object):
                 ijs = tf.reshape(tf.gather(state, idxs), [-1,2,2])
                 ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
                 g = self.relation(ijs)
+                #return g
                 return tf.reduce_sum(g, axis=0)
 
+            #stateT = tf.transpose(state, [1,0,2])
+            #g = tf.map_fn(do_g_sum, state, dtype=tf.float32)
+            #g_sum = tf.reduce_sum(g, axis=1)
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
             self.f_out = self.f(g_sum)
 
@@ -142,13 +146,11 @@ def main():
     train_writer = tf.summary.FileWriter(FLAGS['log_path'] + '/train', sess.graph)
 
     try:
-        pbar = tqdm.tqdm(total=100)
+        pbar = tqdm.tqdm(total=1000)
         for i in itertools.count(start=1):
             train_vals = sess.run(model.train_vals)
             pbar.update()
             if i % 100 == 0:
-                pbar.close()
-                pbar = tqdm.tqdm(total=100)
                 eval_vals = sess.run(model.eval_vals)
                 #plot_arr(curr_state['image'][0][...,0])
                 train_writer.add_summary(eval_vals['summary'], global_step=i)
@@ -161,6 +163,9 @@ def main():
                 logits = eval_vals['logits']
                 #print('logits: min: {} max: {} median: {}'.format(np.min(logits[0]), np.max(logits[0]), np.median(logits[0])))
                 #print('i = {}, loss = {}'.format(i, eval_vals['loss']))
+            if i % 1000 == 0:
+                pbar.close()
+                pbar = tqdm.tqdm(total=1000)
 
             if i >= 5e4:
                 exit()

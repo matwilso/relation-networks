@@ -46,6 +46,7 @@ class Dataset(object):
     def __init__(self, FLAGS):
         dg = lambda : data_generator(FLAGS['num_shapes'], FLAGS['samplers'])
 
+        #self.dataset = tf.data.Dataset.from_generator(dg, {'state': tf.int64, 'image': tf.float32}, {'state': tf.TensorShape([FLAGS['num_shapes'],2]), 'image':tf.TensorShape([None,None,1])})
         self.dataset = tf.data.Dataset.from_generator(dg, {'state': tf.int64, 'image': tf.float32}, {'state': tf.TensorShape([None,2]), 'image':tf.TensorShape([None,None,1])})
         self.dataset = self.dataset.map(to_float)
         self.dataset = self.dataset.map(resize_image)
