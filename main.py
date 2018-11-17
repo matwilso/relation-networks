@@ -59,11 +59,12 @@ class RNModel(object):
         return out
 
     def f(self, g_sum):
-        out = g_sum
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        return out
+        with tf.variable_scope('f') as scope:
+            out = g_sum
+            out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+            out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+            out = tf.layers.dense(out, 128, activation=tf.nn.relu)
+            return out
 
     def __init__(self, state):
         state_shape = tf.shape(state)
@@ -87,22 +88,23 @@ class RNModel(object):
             g_sum = tf.map_fn(do_g_sum, state, dtype=tf.float32)
             self.f_out = self.f(g_sum)
 
-            self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=None), [-1,FLAGS['k'],2])
-            self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=tf.exp), [-1,FLAGS['k'],2])
-            self.logits = tf.layers.dense(self.f_out, FLAGS['k'], activation=None)
+            with tf.variable_scope('mdn'):
+                self.locs = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=None), [-1,FLAGS['k'],2])
+                self.scales = tf.reshape(tf.layers.dense(self.f_out, 2*FLAGS['k'], activation=tf.exp), [-1,FLAGS['k'],2])
+                self.logits = tf.layers.dense(self.f_out, FLAGS['k'], activation=None)
 
-            cat = tfd.Categorical(logits=self.logits)
-            # TODO: does this need to be a more complex normal
-            components = []
-            eval_components = []
-            for loc, scale in zip(tf.unstack(tf.transpose(self.locs, [1,0,2])), tf.unstack(tf.transpose(self.scales, [1,0,2]))):
-                normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
-                components.append(normal)
-                eval_normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
-                eval_components.append(eval_normal)
+                cat = tfd.Categorical(logits=self.logits)
+                # TODO: does this need to be a more complex normal
+                components = []
+                eval_components = []
+                for loc, scale in zip(tf.unstack(tf.transpose(self.locs, [1,0,2])), tf.unstack(tf.transpose(self.scales, [1,0,2]))):
+                    normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+                    components.append(normal)
+                    eval_normal = tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale)
+                    eval_components.append(eval_normal)
 
-            self.mixture = tfd.Mixture(cat=cat, components=components)
-            self.eval_mixture = tfd.Mixture(cat=cat, components=eval_components)
+                self.mixture = tfd.Mixture(cat=cat, components=components)
+                self.eval_mixture = tfd.Mixture(cat=cat, components=eval_components)
             #self.mixture = tfd.Independent(self.mixture, reinterpreted_batch_dims=1)
 
             num_objs = tf.shape(state)[-2]
@@ -113,10 +115,11 @@ class RNModel(object):
             self.loss = tf.reduce_mean(loss)
             self.train_op = tf.train.AdamOptimizer(learning_rate=FLAGS['lr']).minimize(self.loss)
 
-            self.X, self.Y = tf.meshgrid(tf.linspace(-1.0,1.0,100), tf.linspace(-1.0,1.0,100))
-            self.stacked = tf.stack([self.X,self.Y], axis=-1)[:,:,None,:]
-            self.evalZ = self.eval_mixture.log_prob(self.stacked)
-            self.samples = self.eval_mixture.sample([1000])
+            with tf.variable_scope('eval'):
+                self.X, self.Y = tf.meshgrid(tf.linspace(-1.0,1.0,100), tf.linspace(-1.0,1.0,100))
+                self.stacked = tf.stack([self.X,self.Y], axis=-1)[:,:,None,:]
+                self.evalZ = self.eval_mixture.log_prob(self.stacked)
+                self.samples = self.eval_mixture.sample([1000])
 
             self.pred_plot_ph = tf.placeholder(tf.string)
             pred_plot = tf.image.decode_png(self.pred_plot_ph, channels=4)
