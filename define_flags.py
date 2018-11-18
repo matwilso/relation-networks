@@ -12,8 +12,7 @@ FLAGS = flags.FLAGS
 #    __getattr__ = dict.get
 #    __setattr__ = dict.__setitem__
 #    __delattr__ = dict.__delitem__
-flags.DEFINE_bool('vae', False, help='')
-
+flags.DEFINE_string('mode', 'rn', help='')
 flags.DEFINE_string('log_dir', 'logs/', help='')
 flags.DEFINE_float('lr', 3e-4, help='')
 flags.DEFINE_integer('bs', 32, help='')
@@ -24,6 +23,7 @@ flags.DEFINE_integer('k', 25, help='num components')
 flags.DEFINE_integer('vae_k', 100, help='num components')
 flags.DEFINE_integer('z_size', 32, help='')
 flags.DEFINE_integer('vae_z_size', 32, help='')
+flags.DEFINE_integer('tqdm_n', 1000, help='')
 flags.DEFINE_string('save_path', 'weights/model.weights', help='')
 flags.DEFINE_string('load_path', 'weights/model.weights', help='')
 flags.DEFINE_bool('plot_shapes', False, help='')
@@ -37,7 +37,7 @@ FLAGS.k
 
 def _make_hp_str(FLAGS):
     hp_str = ''
-    hp_str += 'vae/' if FLAGS['vae'] else 'objs/'
+    hp_str += FLAGS['mode']+'/'
     hp_str += 'lr{:0.3E}'.format(FLAGS['lr']) 
     hp_str += '-bs{}'.format(FLAGS['bs']) 
     hp_str += '-nshapes{}'.format(FLAGS['num_shapes']) 
@@ -47,7 +47,7 @@ def _make_hp_str(FLAGS):
     hp_str += '-zsize{}'.format(FLAGS['z_size']) 
     hp_str += '-vaesamples{}'.format(FLAGS['num_vae_samples']) 
     hp_str += '-data{}'.format('-'.join(FLAGS['samplers']))
-    hp_str += '-suffix{}'.format(FLAGS['suffix']) if FLAGS['suffix'] else ''
+    hp_str += '-{}'.format(FLAGS['suffix']) if FLAGS['suffix'] else ''
     # TODO: add unique identifier
     return hp_str
 
