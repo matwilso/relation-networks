@@ -26,6 +26,8 @@ def f_net(g_sum, scope='f'):
         out = tf.layers.dense(out, 128, activation=tf.nn.relu)
         return out
 
+
+# TODO: wonder if I want to optimize this to take a fixed number of objects and we just do conditional check and mask out some ones we don't want
 def relation_sum(objs_batch):
     """Take in 'objects' as list. Paralleize over batch""" 
     # TODO: write test for this (maybe where relation is replaced with something simpler)
@@ -86,13 +88,23 @@ def mdn_head(h, FLAGS):
 # inverse of tf.nn.softplus
 softplus_inverse = lambda x: tf.log(tf.math.expm1(x))
 
-def encoder_net(images, FLAGS, scope='encoder', reuse=tf.AUTO_REUSE, activation=tf.nn.relu):
+def snub_encoder(images, activation=tf.nn.relu):
+    h = images
+    h = tf.layers.conv2d(h, 32,  4, strides=2, activation=activation, name="conv1")
+    h = tf.layers.conv2d(h, 64,  4, strides=2, activation=activation, name="conv2")
+    return h
+
+def encoder_conv(images, activation=tf.nn.relu):
     h = images
     h = tf.layers.conv2d(h, 32,  4, strides=2, activation=activation, name="conv1")
     h = tf.layers.conv2d(h, 64,  4, strides=2, activation=activation, name="conv2")
     h = tf.layers.conv2d(h, 128, 4, strides=2, activation=activation, name="conv3")
     h = tf.layers.conv2d(h, 256, 4, strides=2, activation=activation, name="conv4")
+    return h
+
+def encoder_net(images, FLAGS, scope='encoder', reuse=tf.AUTO_REUSE, activation=tf.nn.relu):
     # TODO: probably move to other function
+    h = encoder_conv(images, activation=activation)
     h = tf.layers.flatten(h)
     loc = tf.layers.dense(h, FLAGS['z_size'], activation=None, name='fc_mu')
     log_scale = tf.layers.dense(h, FLAGS['z_size'], activation=None, name='fc_log_var')

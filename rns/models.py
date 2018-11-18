@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow_probability import distributions as tfd
-from rns.building_blocks import f_net, relation_sum, relation_sum_transpose, encoder_net, decoder_net, mdn_head, mixture_prior
+from rns.building_blocks import f_net, relation_sum, relation_sum_transpose, encoder_conv, encoder_net, decoder_net, mdn_head, mixture_prior, snub_encoder, softplus_inverse, relation_net
 from rns.util import image_tile_summary, cartesian_product
 from rns.constant import W, H, R, IMAGE_SHAPE
 from rns.viz import plot
@@ -15,7 +15,7 @@ class Model(object):
         self.train_vals = {}
         self.eval_vals = {}
 
-    def forward(self, input):
+    def forward(self, inputs):
         raise NotImplementedError
 
 class Autoencoder(Model):
@@ -26,9 +26,9 @@ class Autoencoder(Model):
 
 class RNModel(Model):
     """Relation network model that takes in raw state"""
-    def forward(self, input):
+    def forward(self, inputs):
         with tf.variable_scope(self.name):
-            g_sum = relation_sum(input)
+            g_sum = relation_sum(inputs)
             f_out = f_net(g_sum)
             mdn = mdn_head(f_out, self.FLAGS)
         return mdn
@@ -186,21 +186,72 @@ class ConvVAE(Autoencoder):
         self.eval_vals.update({'samples': samples, 'state': self.state, 'summary': self.summary, 'loss': self.loss})
 
 
+# TODO: also try a version of this where it predicts xy coord distribution
+class ConvRN_VAE(ConvVAE):
+    def concat_coord(self, o, i, d):
+        coor = tf.tile(tf.expand_dims([float(int(i / d)) / d, (i % d) / d], axis=0), [self.FLAGS['bs'], 1])
+        o = tf.concat([o, tf.to_float(coor)], axis=1)
+        return o
 
-class ConvRN_VAE(Autoencoder):
-    def encoder(self):
-        pass
+    def encoder(self, images):
+        with tf.variable_scope('encoder'):
+            h = images
+            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv1')
+            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv2')
+            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv3')
+            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv4')
+            d = h.get_shape().as_list()[1]
+            all_g = []
+            for i in range(d*d):
+                o_i = h[:, int(i / d), int(i % d), :]
+                o_i = self.concat_coord(o_i, i, d)
+                for j in range(d*d):
+                    o_j = h[:, int(j / d), int(j % d), :]
+                    o_j = self.concat_coord(o_j, j, d)
+                    oij = tf.concat([o_i, o_j], axis=1)
+                    g_i_j = relation_net(oij)
+                    all_g.append(g_i_j)
+            all_g = tf.stack(all_g, axis=0)
+            all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
 
-    def decoder(self):
-        pass
+            #conv_shape = tf.shape(h)
+            #new_shape = tf.stack([conv_shape[0], -1, 256], axis=0)
+            #conv_objs = tf.reshape(h, new_shape)
+            #with tf.device('/cpu:0'):
+            #    g_sum = relation_sum(conv_objs)
+            f_out = f_net(all_g)
+            loc = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_mu')
+            log_scale = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_log_var')
+            scale = tf.nn.softplus(log_scale + softplus_inverse(1.0)) # idk what this is for. maybe ensuring center around 1.0
+            return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale, name='code')
 
-    def forward(self):
-        pass
+    def decoder(self, codes):
+        with tf.variable_scope('decoder', reuse=tf.AUTO_REUSE):
+            logits = decoder_net(codes, scope=None)
+            return tfd.Independent(tfd.Bernoulli(logits=logits), reinterpreted_batch_ndims=len(IMAGE_SHAPE), name="image") 
 
+    def forward(self, inputs):
+        with tf.variable_scope(self.name):
+            q = self.encoder(inputs)  # approximate posterior
+            q_sample = q.sample(self.FLAGS['num_vae_samples'])  # approximate posterior sample
+            p = self.decoder(q_sample)  # deoder likelihood
+            return dict(q=q, q_sample=q_sample, p=p)
 
     def __init__(self, state, FLAGS, name='ConvVAE'):
         super().__init__(state, FLAGS, name)
-        images = self.state['image']
 
-    # TODO: make this and have interchangeable components with VAE
-    # TODO: and break up encoder_net to have only the conv part. just break out the conv part
+
+class State2ImageVAE(ConvVAE):
+    def encoder(self, inputs):
+        with tf.variable_scope('encoder'):
+            #with tf.device('/cpu:0'):
+            g_sum = relation_sum(inputs)
+            f_out = f_net(g_sum)
+            loc = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_mu')
+            log_scale = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_log_var')
+            scale = tf.nn.softplus(log_scale + softplus_inverse(1.0)) # idk what this is for. maybe ensuring center around 1.0
+            return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale, name='code')
+
+
+    def __init__(self, state, FLAGS, name='State2ImageVAE'):
+        super().__init__(state, FLAGS, name)
