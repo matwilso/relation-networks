@@ -184,3 +184,23 @@ class ConvVAE(Autoencoder):
         self.summary = tf.summary.merge_all(scope='train')
         self.train_vals.update({'loss': self.loss, 'train_op': self.train_op})
         self.eval_vals.update({'samples': samples, 'state': self.state, 'summary': self.summary, 'loss': self.loss})
+
+
+
+class ConvRN_VAE(Autoencoder):
+    def encoder(self):
+        pass
+
+    def decoder(self):
+        pass
+
+    def forward(self):
+        pass
+
+
+    def __init__(self, state, FLAGS, name='ConvVAE'):
+        super().__init__(state, FLAGS, name)
+        images = self.state['image']
+
+    # TODO: make this and have interchangeable components with VAE
+    # TODO: and break up encoder_net to have only the conv part. just break out the conv part

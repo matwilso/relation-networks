@@ -7,7 +7,7 @@ import tqdm
 from define_flags import FLAGS
 from rns.data import normalize, subsample_postbatch, to_float, data_generator, Dataset
 from rns.viz import plot
-from rns.models import RNModel, ConvAE, ConvVAE
+from rns.models import RNModel, ConvAE, ConvVAE, ConvRN_VAE
 
 # TODO: need to add mechanism for masking out extra objects so that every batch can have a fixed number of inputs.
 # at the moment, there can be a difference between number of objects in batch and that shown in the image
@@ -58,7 +58,7 @@ def main():
 
 def vae_main():
     train_ds = Dataset(FLAGS)
-    model = ConvVAE(train_ds.state, FLAGS)
+    model = ConvVAE(train_ds.state, FLAGS) if FLAGS['mode'] == 'vae' else ConvRN_VAE(train_ds.state, FLAGS)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
 
@@ -113,4 +113,4 @@ if __name__ == "__main__":
             dg = data_generator(FLAGS['num_shapes'], FLAGS['samplers'])
             plot_arr(dg.__next__()['image'][...,0])
 
-    {'vae': vae_main, 'ae': ae_main, 'rn': main}[FLAGS['mode']]()
+    {'vae': vae_main, 'ae': ae_main, 'rn': main, 'vae_rn': vae_main}[FLAGS['mode']]()
