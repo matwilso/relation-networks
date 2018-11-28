@@ -75,7 +75,8 @@ def vae_main():
             eval_vals = sess.run(model.eval_vals)
             train_writer.add_summary(eval_vals['summary'], global_step=i)
             #plot_arr(curr_state['image'][0][...,0])
-            #plot_in_out_vae(curr_state['image'][0][...,0], samples[0][0][...,0], FLAGS, i=i)
+            vals = {'img1': eval_vals['state']['image'][0][...,0], 'img2': eval_vals['samples'][0][0][...,0]}
+            plot('in_out_vae', vals, FLAGS, itr=i)
             #print('scales: min: {} max: {} mean: {} median: {}'.format(np.min(scales[0]), np.max(scales[0]), np.mean(scales[0]), np.median(scales[0])))
             print('i = {}, loss = {}'.format(i, eval_vals['loss']))
             train_writer.flush()
