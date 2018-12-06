@@ -7,7 +7,7 @@ import tqdm
 from define_flags import FLAGS
 from rns.data import normalize, subsample_postbatch, to_float, data_generator, Dataset
 from rns.viz import plot
-from rns.models import RNModel, ConvAE, ConvVAE, ConvRN_VAE, State2ImageVAE
+from rns.models import RNModel, ConvAE, ConvVAE, ConvRN_VAE, State2ImageVAE, ConvMDN
 
 # TODO: need to add mechanism for masking out extra objects so that every batch can have a fixed number of inputs.
 # at the moment, there can be a difference between number of objects in batch and that shown in the image
@@ -19,13 +19,17 @@ from rns.models import RNModel, ConvAE, ConvVAE, ConvRN_VAE, State2ImageVAE
 # TODO: try leaky relu
 # TODO: add timing
 
+# TODO: combine these into nicer single function, with standard model interface that can get run
+numvars = lambda : print("\nNUM VARIABLES", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]), "\n")
 
 def main():
     train_ds = Dataset(FLAGS)
-    model = RNModel(train_ds.state, FLAGS)
+    Model = {'rn': RNModel, 'conv_mdn': ConvMDN}[FLAGS['mode']]
+    model = Model(train_ds.state, FLAGS)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
     train_writer = tf.summary.FileWriter(FLAGS['log_path'] + '/train', sess.graph)
+    numvars()
 
     try:
         pbar = tqdm.tqdm(total=FLAGS['tqdm_n'])
@@ -63,6 +67,7 @@ def vae_main():
     model = Model(train_ds.state, FLAGS)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
+    numvars()
 
     train_writer = tf.summary.FileWriter(FLAGS['log_path'] + '/train', sess.graph)
 
@@ -92,6 +97,7 @@ def ae_main():
     model = ConvAE(train_ds.state, FLAGS)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
+    numvars()
 
     train_writer = tf.summary.FileWriter(FLAGS['log_path'] + '/train', sess.graph)
 
@@ -117,4 +123,4 @@ if __name__ == "__main__":
             dg = data_generator(FLAGS['num_shapes'], FLAGS['samplers'])
             plot('arr', dg.__next__()['image'][...,0], FLAGS)
 
-    {'vae': vae_main, 'ae': ae_main, 'rn': main, 'vae_rn': vae_main, 'rn2img': vae_main}[FLAGS['mode']]()
+    {'vae': vae_main, 'ae': ae_main, 'rn': main, 'vae_rn': vae_main, 'rn2img': vae_main, 'conv_mdn': main}[FLAGS['mode']]()

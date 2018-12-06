@@ -13,6 +13,7 @@ FLAGS = flags.FLAGS
 #    __setattr__ = dict.__setitem__
 #    __delattr__ = dict.__delitem__
 flags.DEFINE_string('mode', 'rn', help='')
+flags.DEFINE_bool('skip', False, help='')
 flags.DEFINE_string('log_dir', 'logs/', help='')
 flags.DEFINE_float('lr', 3e-4, help='')
 flags.DEFINE_integer('bs', 32, help='')
@@ -40,6 +41,7 @@ def _make_hp_str(FLAGS):
     hp_str += FLAGS['mode']+'/'
     hp_str += 'lr{:0.3E}'.format(FLAGS['lr']) 
     hp_str += '-bs{}'.format(FLAGS['bs']) 
+    hp_str += '-skip' if FLAGS['skip'] else ''
     hp_str += '-nshapes{}'.format(FLAGS['num_shapes']) 
     hp_str += '-subsample{}'.format(FLAGS['subsample']) 
     hp_str += '-k{}'.format(FLAGS['k']) 

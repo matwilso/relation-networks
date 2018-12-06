@@ -28,8 +28,8 @@ class RNModel(Model):
     """Relation network model that takes in raw state"""
     def forward(self, inputs):
         with tf.variable_scope(self.name):
-            g_sum = relation_sum(inputs)
-            f_out = f_net(g_sum)
+            g_sum = relation_sum(inputs, self.FLAGS)
+            f_out = f_net(g_sum, self.FLAGS)
             mdn = mdn_head(f_out, self.FLAGS)
         return mdn
 
@@ -69,8 +69,8 @@ class RNModel(Model):
         # bundle up 
         self.summary = tf.summary.merge(eval_summaries)
         self.train_vals = {'loss': self.loss, 'train_op': self.train_op}
-        self.eval_vals = {'state': self.state, 'samples': self.samples, 
-        'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
+        #self.eval_vals = {'state': self.state, 'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
+        self.eval_vals = {'state': self.state, 'samples': self.samples, 'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
 
 
 class ConvAE(Autoencoder):
@@ -196,10 +196,10 @@ class ConvRN_VAE(ConvVAE):
     def encoder(self, images):
         with tf.variable_scope('encoder'):
             h = images
-            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv1')
-            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv2')
-            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv3')
-            h = tf.layers.conv2d(h, 24, 3, strides=2, activation=tf.nn.relu, name='conv4')
+            h = tf.layers.conv2d(h, 32, 3, strides=2, activation=tf.nn.relu, name='conv1')
+            h = tf.layers.conv2d(h, 64, 3, strides=2, activation=tf.nn.relu, name='conv2')
+            h = tf.layers.conv2d(h, 128, 3, strides=2, activation=tf.nn.relu, name='conv3')
+            h = tf.layers.conv2d(h, 32, 3, strides=2, activation=tf.nn.relu, name='conv4')
             d = h.get_shape().as_list()[1]
             all_g = []
             for i in range(d*d):
@@ -218,8 +218,8 @@ class ConvRN_VAE(ConvVAE):
             #new_shape = tf.stack([conv_shape[0], -1, 256], axis=0)
             #conv_objs = tf.reshape(h, new_shape)
             #with tf.device('/cpu:0'):
-            #    g_sum = relation_sum(conv_objs)
-            f_out = f_net(all_g)
+            #    g_sum = relation_sum(conv_objs, self.FLAGS)
+            f_out = f_net(all_g, FLAGS)
             loc = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_mu')
             log_scale = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_log_var')
             scale = tf.nn.softplus(log_scale + softplus_inverse(1.0)) # idk what this is for. maybe ensuring center around 1.0
@@ -245,13 +245,58 @@ class State2ImageVAE(ConvVAE):
     def encoder(self, inputs):
         with tf.variable_scope('encoder'):
             #with tf.device('/cpu:0'):
-            g_sum = relation_sum(inputs)
-            f_out = f_net(g_sum)
+            g_sum = relation_sum(inputs, self.FLAGS)
+            f_out = f_net(g_sum, FLAGS)
             loc = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_mu')
             log_scale = tf.layers.dense(f_out, self.FLAGS['z_size'], activation=None, name='fc_log_var')
             scale = tf.nn.softplus(log_scale + softplus_inverse(1.0)) # idk what this is for. maybe ensuring center around 1.0
             return tfd.MultivariateNormalDiag(loc=loc, scale_diag=scale, name='code')
 
+class ConvMDN(Model):
+    def forward(self, inputs):
+        with tf.variable_scope(self.name):
+            h = encoder_conv(inputs)
+            #h = tf.layers.flatten(h)
+            h = tf.contrib.layers.spatial_softmax(h)
+            mdn = mdn_head(h, self.FLAGS)
+        return mdn
 
-    def __init__(self, state, FLAGS, name='State2ImageVAE'):
+    def __init__(self, state, FLAGS, name='ConvMDN'):
         super().__init__(state, FLAGS, name)
+        self.image = self.state['image']
+        self.state = self.state['state']
+        self.mdn = self.forward(self.image)
+
+        # calculate log_probability over all objects in the set for loss
+        tstate = tf.transpose(self.state, [1,0,2])
+        self.loss = -tf.map_fn(self.mdn['mixture'].log_prob, tstate, tf.float32)
+        self.loss = tf.reduce_mean(self.loss)
+        self.train_op = tf.train.AdamOptimizer(learning_rate=self.FLAGS['lr']).minimize(self.loss)
+
+        # generate logging info
+        with tf.variable_scope('eval'):
+            self.X, self.Y = tf.meshgrid(tf.linspace(-1.0,1.0,100), tf.linspace(-1.0,1.0,100))
+            self.stacked = tf.stack([self.X,self.Y], axis=-1)[:,:,None,:]
+            self.evalZ = self.mdn['eval_mixture'].log_prob(self.stacked)
+            self.samples = self.mdn['eval_mixture'].sample([1000])
+
+        self.pred_plot_ph = tf.placeholder(tf.string)
+        pred_plot = tf.image.decode_png(self.pred_plot_ph, channels=4)
+        pred_plot = tf.expand_dims(pred_plot, 0)
+
+        plot_summaries = []
+        plot_summaries.append(tf.summary.image('mdn_contour', pred_plot))
+        self.plot_summaries = tf.summary.merge(plot_summaries)
+
+        eval_summaries = []
+        with tf.name_scope('train'):
+            eval_summaries.append(tf.summary.scalar('loss', self.loss))
+            eval_summaries.append(tf.summary.scalar('min_logits', tf.reduce_min(self.mdn['logits'][0])))
+            eval_summaries.append(tf.summary.scalar('max_logits', tf.reduce_max(self.mdn['logits'][0])))
+            eval_summaries.append(tf.summary.scalar('median_logits', tfd.percentile(self.mdn['logits'], 50.0)))
+
+        # bundle up 
+        self.summary = tf.summary.merge(eval_summaries)
+        self.train_vals = {'loss': self.loss, 'train_op': self.train_op}
+        self.eval_vals = {'state': self.state, 'samples': self.samples, 
+        'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
