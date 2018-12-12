@@ -7,63 +7,34 @@ from rns.util import cartesian_product
 LEGO bricks
 """
 
-def relation_net(oij, scope='g'):
+def relation_net(oij, FLAGS, scope='g'):
     """MLP for relation (g)  part of Relation Network (RN)"""
     with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-        #out = tf.concat([objects[ij[0]],objects[ij[0]]])
-        out = oij
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=None)
-    return out
-
-def _f_net(g_sum, scope='f'):
-    """MLP for f part of RN"""
-    with tf.variable_scope(scope):
-        out = g_sum
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 128, activation=tf.nn.relu)
-        out = tf.layers.dense(out, 1024, activation=tf.nn.relu)
-        return out
-
-def skip_relation_net(oij, scope='g'):
-    """MLP for relation (g)  part of Relation Network (RN)"""
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-        #out = tf.concat([objects[ij[0]],objects[ij[0]]])
         h = oij
-        h1 = tf.layers.dense(h, 128, activation=tf.nn.relu)
-        h2 = tf.layers.dense(h1, 128, activation=tf.nn.relu)
-        h2 = tf.contrib.layers.layer_norm(h1 + h2)
-        h3 = tf.layers.dense(h2, 128, activation=tf.nn.relu)
-        h3 = tf.contrib.layers.layer_norm(h3 + h2)
-        h4 = tf.layers.dense(h3, 128, activation=None)
-        h4 = tf.contrib.layers.layer_norm(h4 + h3)
-    out = h4
-    return out
+        #hs = []
+        for i in range(FLAGS['num_g_fc']-1):
+            h = tf.layers.dense(h, FLAGS['g_size'], activation=tf.nn.relu)
+            #hs.append(h)
+        h = tf.layers.dense(h, FLAGS['gf_x'], activation=tf.nn.relu)
+    return h 
 
-def _skip_f_net(g_sum, scope='f'):
+def _f_net(g_sum, FLAGS, scope='f'):
     """MLP for f part of RN"""
     with tf.variable_scope(scope):
         h = g_sum
-        h1 = tf.layers.dense(h, 128, activation=tf.nn.relu)
-        h2 = tf.layers.dense(h1, 128, activation=tf.nn.relu)
-        h2 = tf.contrib.layers.layer_norm(h1 + h2)
-        h3 = tf.layers.dense(h2, 128, activation=tf.nn.relu)
-        h3 = tf.contrib.layers.layer_norm(h2 + h3)
-        h4 = tf.layers.dense(h3, 128, activation=tf.nn.relu)
-        h4 = tf.contrib.layers.layer_norm(h3 + h4)
-        h5 = tf.layers.dense(h4, 1024, activation=tf.nn.relu)
-    out = h5
-    return out
+        #hs = []
+        h = tf.layers.dense(h, FLAGS['gf_x'], activation=tf.nn.relu)
+        for i in range(FLAGS['num_f_fc']-1):
+            h = tf.layers.dense(h, FLAGS['f_size'], activation=tf.nn.relu)
+            #hs.append(h)
+        return h
+
 
 def f_net(g_sum, FLAGS, scope='f'):
     if FLAGS['skip']:
-        return _skip_f_net(g_sum, scope)
+        return _skip_f_net(g_sum, FLAGS, scope)
     else:
-        return _f_net(g_sum, scope)
+        return _f_net(g_sum, FLAGS, scope)
 
 
 # TODO: wonder if it would help to divide by sqrt of number of objects in order to make magnitude more similar
@@ -78,16 +49,16 @@ def relation_sum(objs_batch, FLAGS):
         ijs = tf.reshape(tf.gather(objs, idxs), [-1,2,2])
         ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
         if FLAGS['skip']:
-            g = skip_relation_net(ijs)
+            g = skip_relation_net(ijs, FLAGS)
         else:
-            g = relation_net(ijs)
+            g = relation_net(ijs, FLAGS)
         return tf.reduce_sum(g, axis=0)
 
     g_sum = tf.map_fn(do_g_sum, objs_batch, dtype=tf.float32)
     return g_sum
 
 # TODO: do a comparison between these to see which one is faster
-def relation_sum_transpose(objs):
+def relation_sum_transpose(objs, FLAGS):
     """
     Take in 'objects' as list. Parallelize (map_fn) over object pairs instead of batch
 
@@ -100,7 +71,7 @@ def relation_sum_transpose(objs):
         idxs = cartesian_product(x,x)
         ijs = tf.reshape(tf.gather(batch_ij, idxs), [-1,2,2])
         ijs = tf.concat([ijs[:,0], ijs[:,1]], axis=1)
-        g = relation_net(ijs)
+        g = relation_net(ijs, FLAGS)
         return g
 
     # Change order of dims to do map_fn over the objects.  This might be faster if there are many more object pairs than batches. Or maybe the opposite of that
@@ -181,4 +152,34 @@ def mixture_prior(FLAGS):
             mixture_distribution=tfd.Categorical(logits=mixture_logits), 
         name="prior")
 
+
+def skip_relation_net(oij, scope='g'):
+    """MLP for relation (g)  part of Relation Network (RN)"""
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+        #out = tf.concat([objects[ij[0]],objects[ij[0]]])
+        h = oij
+        h1 = tf.layers.dense(h, 128, activation=tf.nn.relu)
+        h2 = tf.layers.dense(h1, 128, activation=tf.nn.relu)
+        h2 = tf.contrib.layers.layer_norm(h1 + h2)
+        h3 = tf.layers.dense(h2, 128, activation=tf.nn.relu)
+        h3 = tf.contrib.layers.layer_norm(h3 + h2)
+        h4 = tf.layers.dense(h3, 128, activation=None)
+        h4 = tf.contrib.layers.layer_norm(h4 + h3)
+    out = h4
+    return out
+
+def _skip_f_net(g_sum, scope='f'):
+    """MLP for f part of RN"""
+    with tf.variable_scope(scope):
+        h = g_sum
+        h1 = tf.layers.dense(h, 128, activation=tf.nn.relu)
+        h2 = tf.layers.dense(h1, 128, activation=tf.nn.relu)
+        h2 = tf.contrib.layers.layer_norm(h1 + h2)
+        h3 = tf.layers.dense(h2, 128, activation=tf.nn.relu)
+        h3 = tf.contrib.layers.layer_norm(h2 + h3)
+        h4 = tf.layers.dense(h3, 128, activation=tf.nn.relu)
+        h4 = tf.contrib.layers.layer_norm(h3 + h4)
+        h5 = tf.layers.dense(h4, 1024, activation=tf.nn.relu)
+    out = h5
+    return out
 

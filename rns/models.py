@@ -72,6 +72,23 @@ class RNModel(Model):
         #self.eval_vals = {'state': self.state, 'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
         self.eval_vals = {'state': self.state, 'samples': self.samples, 'summary': self.summary, 'loss': self.loss, 'X': self.X, 'Y': self.Y, 'Z': self.evalZ, 'logits': self.mdn['logits']}
 
+class SingletonModel(RNModel):
+    """Singleton network model that takes in raw state"""
+    def forward(self, inputs):
+        with tf.variable_scope(self.name):
+            def do_g_sum(objs):
+                g = relation_net(objs, self.FLAGS)
+                return tf.reduce_sum(g, axis=0)
+            
+            g_sum = tf.map_fn(do_g_sum, inputs, dtype=tf.float32)
+
+            f_out = f_net(g_sum, self.FLAGS)
+            mdn = mdn_head(f_out, self.FLAGS)
+        return mdn
+
+    def __init__(self, state, FLAGS, name='Singleton'):
+        super().__init__(state, FLAGS, name)
+
 
 class ConvAE(Autoencoder):
     """Standard Autoencoder with MSE loss"""
@@ -209,7 +226,7 @@ class ConvRN_VAE(ConvVAE):
                     o_j = h[:, int(j / d), int(j % d), :]
                     o_j = self.concat_coord(o_j, j, d)
                     oij = tf.concat([o_i, o_j], axis=1)
-                    g_i_j = relation_net(oij)
+                    g_i_j = relation_net(oij, self.FLAGS)
                     all_g.append(g_i_j)
             all_g = tf.stack(all_g, axis=0)
             all_g = tf.reduce_mean(all_g, axis=0, name='all_g')
@@ -256,8 +273,8 @@ class ConvMDN(Model):
     def forward(self, inputs):
         with tf.variable_scope(self.name):
             h = encoder_conv(inputs)
-            #h = tf.layers.flatten(h)
-            h = tf.contrib.layers.spatial_softmax(h)
+            h = tf.layers.flatten(h)
+            #h = tf.contrib.layers.spatial_softmax(h)
             mdn = mdn_head(h, self.FLAGS)
         return mdn
 
