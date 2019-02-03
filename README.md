@@ -86,7 +86,7 @@ in the figure.
 Both methods are better at handling the clustered sampling than they are
 at handling the uniform random sampling.
 It is a bit hard to compare them, since they are producing different output
-modalities, but I think the VAE results pretty a bit nicer right now.
+modalities, but I think the VAE results are a bit nicer right now.
 Maybe the balance is tipped a bit in its favor;  I use a small 64x64 image 
 size with simple shapes, and the implementation is mostly borrowed from other 
 tuned examples, whereas I have not tried tuning the RN much or experimented u
